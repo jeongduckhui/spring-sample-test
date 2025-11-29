@@ -1,11 +1,10 @@
-package com.example.demo.repository.mybatis;
+package com.example.demo.repository.customer;
 
 import java.util.Optional;
 
 import org.springframework.stereotype.Repository;
 
 import com.example.demo.domain.Customer;
-import com.example.demo.repository.CustomerRepository;
 
 import lombok.RequiredArgsConstructor;
 

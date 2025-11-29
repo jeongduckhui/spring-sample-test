@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.demo.domain.Customer;
-import com.example.demo.service.CustomerService;
+import com.example.demo.service.customer.CustomerService;
 
 import lombok.RequiredArgsConstructor;
 

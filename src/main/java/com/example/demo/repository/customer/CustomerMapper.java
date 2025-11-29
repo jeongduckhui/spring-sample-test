@@ -1,4 +1,4 @@
-package com.example.demo.repository.mybatis;
+package com.example.demo.repository.customer;
 
 import java.util.Optional;
 

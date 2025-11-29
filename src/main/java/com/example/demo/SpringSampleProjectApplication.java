@@ -5,7 +5,10 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-@MapperScan("com.example.demo.repository.mybatis")
+@MapperScan(basePackages={
+	"com.example.demo.repository.customer",
+	"com.example.demo.repository.query"	
+})
 public class SpringSampleProjectApplication {
 
 	public static void main(String[] args) {

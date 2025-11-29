@@ -1,4 +1,4 @@
-package com.example.demo.repository.mybatis;
+package com.example.demo.repository.query;
 
 import org.apache.ibatis.annotations.Mapper;
 import com.example.demo.domain.QueryLog;

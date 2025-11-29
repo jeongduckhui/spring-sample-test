@@ -1,5 +1,7 @@
 package com.example.demo.aop;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -9,12 +11,9 @@ import org.springframework.stereotype.Component;
 
 import com.example.demo.domain.QueryLog;
 import com.example.demo.interceptor.QueryLogInterceptor; // Interceptor import
-import com.example.demo.repository.mybatis.QueryLogMapper; // 로그 저장용 매퍼
+import com.example.demo.repository.query.QueryLogMapper;
 
 import lombok.RequiredArgsConstructor;
-
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Aspect
 @Component
