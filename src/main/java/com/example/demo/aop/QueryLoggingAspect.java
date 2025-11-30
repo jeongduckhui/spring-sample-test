@@ -69,7 +69,7 @@ public class QueryLoggingAspect {
                     // ★★★ QueryLogMapper를 통해 DB에 로그 저장 ★★★
                     queryLogMapper.insertQueryLog(log);
                 } catch (Exception e) {
-                    System.err.println("\n--- 🚨🚨🚨 DB LOG SAVE FAILED 🚨🚨🚨 ---");
+                    System.err.println("\n-------- DB LOG SAVE FAILED ---------");
                     System.err.println("Service ID: " + serviceMethodId);
                     System.err.println("Error Message: " + e.getMessage()); 
                     e.printStackTrace();
