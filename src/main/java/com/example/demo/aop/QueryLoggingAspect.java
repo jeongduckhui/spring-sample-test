@@ -66,7 +66,7 @@ public class QueryLoggingAspect {
                 log.setExecutedQuery(fullQueryLog.toString());
                 
                 try {
-                    // ★★★ QueryLogMapper를 통해 DB에 로그 저장 ★★★
+                    // ueryLogMapper를 통해 DB에 로그 저장 
                     queryLogMapper.insertQueryLog(log);
                 } catch (Exception e) {
                     System.err.println("\n-------- DB LOG SAVE FAILED ---------");
