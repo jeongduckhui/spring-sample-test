@@ -2,7 +2,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.example.demo.repository.query.QueryLogMapper">
 
-    <insert id="insertQueryLog" parameterType="com.example.demo.domain.QueryLog">
+    <insert id="insertQueryLog" parameterType="com.example.demo.domain.query.QueryLog">
         INSERT INTO T_QUERY_LOG (
             mapper_id,
             executed_query,
@@ -14,7 +14,7 @@
         )
     </insert>
     
-    <select id="selectLatestQueryLogByMapperId" parameterType="String" resultType="com.example.demo.domain.QueryLog">
+    <select id="selectLatestQueryLogByMapperId" parameterType="String" resultType="com.example.demo.domain.query.QueryLog">
         SELECT 
             id,
             mapper_id, 

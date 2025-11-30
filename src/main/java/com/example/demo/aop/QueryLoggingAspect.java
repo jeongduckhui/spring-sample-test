@@ -9,7 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import com.example.demo.domain.QueryLog;
+import com.example.demo.domain.query.QueryLog;
 import com.example.demo.interceptor.QueryLogInterceptor; // Interceptor import
 import com.example.demo.repository.query.QueryLogMapper;
 

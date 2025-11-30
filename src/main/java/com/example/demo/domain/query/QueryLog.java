@@ -1,4 +1,4 @@
-package com.example.demo.domain;
+package com.example.demo.domain.query;
 
 import lombok.Data;
 import java.sql.Timestamp; // 또는 java.time.LocalDateTime 사용

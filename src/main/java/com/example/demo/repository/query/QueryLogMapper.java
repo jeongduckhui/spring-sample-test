@@ -1,7 +1,8 @@
 package com.example.demo.repository.query;
 
 import org.apache.ibatis.annotations.Mapper;
-import com.example.demo.domain.QueryLog;
+
+import com.example.demo.domain.query.QueryLog;
 
 @Mapper
 public interface QueryLogMapper {
