@@ -26,6 +26,7 @@ public class CommonCodeServiceImpl implements CommonCodeService{
 	private final CommonCodeMapper commonCodeMapper;
 	
 	// 스레드 안전한 공통코드 캐시 저장소 Map
+	// 파일럿 프로젝트용으로 Map으로 캐시 구현. 실무 때는 필요없음.
 	private final Map<String, List<CommonCode>> cache = new ConcurrentHashMap<>();
 	// TTL(Time-To-Live) 초기화. 마지막 캐시 로드 시간 추적용.
 	private Instant lastLoadedTime = Instant.MIN;
@@ -37,7 +38,6 @@ public class CommonCodeServiceImpl implements CommonCodeService{
 	@Value("${common-code.ttl-seconds:300}")
     private long ttlSeconds;
 	
-	// 공통코드 캐싱 기능이 필요하면 차후 애플리케이션 레벨 구현, Caffeine, Redis 등 외부 라이브러리 사용 고려
 	/** 생성자 호출 후 공통코드 자동 초기화 **/
 	@PostConstruct
 	public void initCommonCode() {
