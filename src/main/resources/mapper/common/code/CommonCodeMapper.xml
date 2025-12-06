@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.example.demo.repository.common.code.CommonCodeMapper">
+
+	<!-- 화면에 보이는 조회조건 전체 공통코드만 조회 (숨겨져있는 조회조건 공통코드는 조회하지 않음). -->
+    <select id="selectAll" resultType="com.example.demo.domain.common.code.CommonCode">
+        SELECT 
+            id, group_code AS groupCode, code_value AS codeValue,
+            sort_seq AS sortSeq, use_yn AS useYn
+        FROM common_code
+        WHERE use_yn = 'Y'
+        ORDER BY group_code, sort_seq
+    </select>
+
+    <select id="selectByGroupCodes" resultType="com.example.demo.domain.common.code.CommonCode">
+        SELECT 
+            id, group_code AS groupCode, code_value AS codeValue,
+            sort_seq AS sortSeq, use_yn AS useYn
+        FROM common_code
+        WHERE use_yn = 'Y'
+        <if test="groupCodes != null and groupCodes.size > 0">
+            AND group_code IN
+            <foreach collection="groupCodes" item="gc" open="(" separator="," close=")">
+                #{gc}
+            </foreach>
+        </if>
+        ORDER BY group_code, sort_seq
+    </select>
+    
+    <select id="selectByGroupCode" resultType="com.example.demo.domain.common.code.CommonCode">
+        SELECT 
+            id, group_code AS groupCode, code_value AS codeValue,
+            sort_seq AS sortSeq, use_yn AS useYn
+        FROM common_code
+        WHERE use_yn = 'Y'
+          AND group_code = #{groupCode}
+        ORDER BY group_code, sort_seq
+    </select>
+
+</mapper>
