@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Configuration status="WARN" monitorInterval="30">
     <Properties>
+        <!-- application.properties의 logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} 형식을 반영했습니다. -->
+        <!-- 기존 XML의 패턴보다 초 단위까지만 표시되도록 수정되었습니다. -->
+        <Property name="PATTERN">%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</Property>
         <Property name="LOG_DIR">./logs</Property>
-        <Property name="PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</Property>
     </Properties>
     
     <Appenders>
@@ -20,6 +22,7 @@
             </Policies>
         </RollingFile>
         
+        <!-- JDBC 타이밍 로그 파일 Appender -->
         <RollingFile name="JdbcTimingFileAppender" 
                      fileName="${LOG_DIR}/jdbc-timing.log"
                      filePattern="${LOG_DIR}/jdbc-timing-%d{yyyy-MM-dd}-%i.log.gz">
@@ -29,19 +32,44 @@
                 <SizeBasedTriggeringPolicy size="10 MB"/>
             </Policies>
         </RollingFile>
-        
+
+        <!-- JDBC 감사/결과셋 로그 파일 Appender 추가 -->
+         <RollingFile name="JdbcAuditFileAppender" 
+                     fileName="${LOG_DIR}/jdbc-audit-resultset.log"
+                     filePattern="${LOG_DIR}/jdbc-audit-resultset-%d{yyyy-MM-dd}-%i.log.gz">
+            <PatternLayout pattern="${PATTERN}"/>
+            <Policies>
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <SizeBasedTriggeringPolicy size="10 MB"/>
+            </Policies>
+        </RollingFile>
     </Appenders>
 
     <Loggers>
+        <!-- application.properties의 logging.level.root=INFO 반영 -->
         <Root level="info">
             <AppenderRef ref="ConsoleAppender"/>
             <AppenderRef ref="FileAppender"/>
         </Root>
         
-        <Logger name="jdbc.sqltiming" level="info" additivity="false">
+        <!-- application.properties의 logging.level.jdbc.sqltiming=DEBUG 반영 -->
+        <!-- Console과 JdbcTimingFileAppender로 출력 -->
+        <Logger name="jdbc.sqltiming" level="debug" additivity="false">
             <AppenderRef ref="ConsoleAppender"/>
             <AppenderRef ref="JdbcTimingFileAppender"/>
         </Logger>
+        
+        <!-- application.properties의 logging.level.jdbc.audit=DEBUG 및 -->
+        <!-- logging.level.jdbc.resultset=DEBUG 반영 -->
+        <!-- 이 로그들은 Console과 JdbcAuditFileAppender로 출력되도록 설정 -->
+        <Logger name="jdbc.audit" level="debug" additivity="false">
+            <AppenderRef ref="ConsoleAppender"/>
+            <AppenderRef ref="JdbcAuditFileAppender"/>
+        </Logger>
+         <Logger name="jdbc.resultset" level="debug" additivity="false">
+            <AppenderRef ref="ConsoleAppender"/>
+            <AppenderRef ref="JdbcAuditFileAppender"/>
+        </Logger>
 
-        </Loggers>
+    </Loggers>
 </Configuration>
