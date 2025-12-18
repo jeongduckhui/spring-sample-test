@@ -10,7 +10,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 //	"com.example.demo.repository.query"	
 //})
 // Mapper 상위 패키지 지정
-@MapperScan(basePackages = "com.example.demo.repository")
+@MapperScan(basePackages = {"com.example.demo.repository", "com.example.demo.securesql.mapper"})
 public class SpringSampleProjectApplication {
 
 	public static void main(String[] args) {

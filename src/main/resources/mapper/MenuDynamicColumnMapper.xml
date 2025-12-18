@@ -3,4 +3,168 @@
 
 <mapper namespace="com.example.demo.repository.dynamic.MenuDynamicColumnMapper">
 
+
+
+<select id="selectSalesAggregation" resultType="map">
+
+    SELECT
+        /* ===== 기본 그룹 항목(동적으로 변경 가능) ===== */
+        ${group1} AS group_key1,
+        ${group2} AS group_key2,
+        ${group3} AS group_key3,
+
+        /* ===== 날짜 기반 기본 정보 ===== */
+        YEAR,
+        MONTH,
+        QUARTER,
+
+        /* ===== 지역 정보 ===== */
+        REGION_LARGE,
+        REGION_MEDIUM,
+        REGION_SMALL,
+
+        /* ===== 상품 정보 ===== */
+        PRODUCT_CATEGORY_L,
+        PRODUCT_CATEGORY_M,
+        PRODUCT_CATEGORY_S,
+
+        /* ===== 동적 집계 항목 ===== */
+        SUM(QTY) AS total_qty,
+        SUM(SALES_AMOUNT) AS total_sales_amount,
+        SUM(DISCOUNT_AMOUNT) AS total_discount_amount,
+        SUM(FINAL_AMOUNT) AS total_final_amount,
+
+        /* === 동적 SUM 선택 기능 === */
+        <if test="dynamicMeasure != null">
+            SUM(${dynamicMeasure}) AS dynamic_measure_value,
+        </if>
+
+        /* === CASE WHEN X COUNT === */
+        <if test="useCase != null and useCase == true">
+            SUM(CASE WHEN FINAL_AMOUNT &gt;= 100000 THEN 1 ELSE 0 END) AS high_value_cnt,
+            SUM(CASE WHEN DISCOUNT_AMOUNT &gt;= 5000 THEN 1 ELSE 0 END) AS big_discount_cnt,
+        </if>
+
+        /* === GROUPING() to detect rollup totals === */
+        GROUPING(${group1}) AS grp1_flag,
+        GROUPING(${group2}) AS grp2_flag,
+        GROUPING(${group3}) AS grp3_flag
+
+    FROM SALES_TRANSACTION
+    <where>
+
+        <!-- 날짜 조건 -->
+        <if test="startDate != null and endDate != null">
+            AND TX_DATE BETWEEN #{startDate} AND #{endDate}
+        </if>
+
+        <!-- 매장 조건 -->
+        <if test="storeId != null">
+            AND STORE_ID = #{storeId}
+        </if>
+
+        <if test="storeList != null">
+            AND STORE_ID IN
+            <foreach item="s" collection="storeList" open="(" close=")" separator=",">
+                #{s}
+            </foreach>
+        </if>
+
+        <!-- 지역 조건 -->
+        <if test="regionLarge != null">
+            AND REGION_LARGE = #{regionLarge}
+        </if>
+        <if test="regionMedium != null">
+            AND REGION_MEDIUM = #{regionMedium}
+        </if>
+        <if test="regionSmall != null">
+            AND REGION_SMALL = #{regionSmall}
+        </if>
+
+        <!-- 상품 조건 -->
+        <if test="categoryL != null">
+            AND PRODUCT_CATEGORY_L = #{categoryL}
+        </if>
+        <if test="categoryM != null">
+            AND PRODUCT_CATEGORY_M = #{categoryM}
+        </if>
+        <if test="categoryS != null">
+            AND PRODUCT_CATEGORY_S = #{categoryS}
+        </if>
+
+        <!-- 고객 조건 -->
+        <if test="gender != null">
+            AND CUSTOMER_GENDER = #{gender}
+        </if>
+        <if test="ageGroup != null">
+            AND CUSTOMER_AGE_GROUP = #{ageGroup}
+        </if>
+
+        <!-- 가격 조건 -->
+        <if test="minPrice != null">
+            AND UNIT_PRICE &gt;= #{minPrice}
+        </if>
+        <if test="maxPrice != null">
+            AND UNIT_PRICE &lt;= #{maxPrice}
+        </if>
+
+        <!-- 프로모션 조건 -->
+        <if test="promotionCode != null">
+            AND PROMOTION_CODE = #{promotionCode}
+        </if>
+    </where>
+
+    <!-- GROUP BY → 100% 동적 + ONLY_FULL_GROUP_BY 만족 -->
+    GROUP BY 
+        ${group1},
+        ${group2},
+        ${group3},
+        YEAR,
+        MONTH,
+        QUARTER,
+        REGION_LARGE,
+        REGION_MEDIUM,
+        REGION_SMALL,
+        PRODUCT_CATEGORY_L,
+        PRODUCT_CATEGORY_M,
+        PRODUCT_CATEGORY_S
+
+    <!-- ROLLUP 사용 -->
+    <if test="useRollup != null and useRollup == true">
+        WITH ROLLUP
+    </if>
+
+    <!-- HAVING 조건 -->
+    <if test="havingMinSales != null">
+        HAVING SUM(FINAL_AMOUNT) &gt;= #{havingMinSales}
+    </if>
+
+    <!-- ORDER BY -->
+    <if test="order1 != null">
+        ORDER BY ${order1}
+        <if test="order1Dir != null">
+            ${order1Dir}
+        </if>
+    </if>
+
+    <if test="order2 != null">
+        , ${order2}
+        <if test="order2Dir != null">
+            ${order2Dir}
+        </if>
+    </if>
+
+    <if test="order3 != null">
+        , ${order3}
+        <if test="order3Dir != null">
+            ${order3Dir}
+        </if>
+    </if>
+
+    <if test="limit != null">
+        LIMIT #{limit}
+    </if>
+
+</select>
+
 </mapper>
