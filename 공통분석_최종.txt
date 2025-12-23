@@ -1,0 +1,1408 @@
+Nexcore → Spring Boot 3.2.5 전환 “공통 아키텍처 최종본”
+0. 이 문서의 목적과 범위
+목적
+전사 시스템을 “시스템공통(System Common)” 과 “업무공통(Business Common)” 으로 분리하여
+
+표준 아키텍처
+
+운영 가시성(Observability)
+
+보안 통제(Authorization)
+
+테스트 가능성(Testability)
+
+확장성(Modularity)
+을 확보한다.
+
+Nexcore의 강결합/블랙박스 구조에서 벗어나, Spring Boot 생태계의 표준을 활용해 책임 기반 공통화를 구현한다.
+
+범위
+시스템공통(System Common)
+
+업무공통(Business Common)
+
+권한/조직/메뉴/화면 “전체 권한 모델” + 관리자 API(테이블+API)
+
+심화: 권한 합성(겸직/우선순위/Deny) + 캐시 + 감사로그
+
+심화: 예외/에러 표준 + TraceId
+
+심화: 로깅/감사로그/마스킹/구조화 로그
+
+심화: 설정/프로파일/Feature Toggle
+
+심화: 표준 API 계약(응답/페이징/검증)
+
+업무공통 심화: 공통코드/조직도/메시지/문서서식·게시판
+
+기반시스템: 파일/스토리지 + (배치 Spring Batch) + (외부연계 EAI: HTTP→SOAP 확장)
+
+Nexcore 혼재 문제 분석 + 단계별 전환 로드맵
+
+상사용 1~2페이지 요약 + “최종 결론 슬라이드(한 장)”
+
+1. 시스템공통 vs 업무공통 “분류 원칙”
+1.1 시스템공통(System Common)
+업무와 무관하게 모든 시스템에서 공통으로 필요한 기술/인프라 레벨 기능
+
+업무 도메인과 완전히 분리
+
+모든 서비스/업무에서 동일 규칙
+
+변경 시 전체 시스템 영향
+
+운영·보안·성능·표준화 중심
+
+1.2 업무공통(Business Common)
+업무 시스템 전반에서 반복적으로 사용되는 비즈니스 패턴/정책 데이터
+
+업무 도메인에 의존(정책/조직/서식/코드 등)
+
+여러 업무 시스템에서 재사용
+
+정책 변경 가능성 높음
+
+시스템공통보다 상위 레벨(업무 의미를 가진 공통)
+
+1.3 상사 설득용 한 줄(핵심)
+“Nexcore는 ‘프레임워크 사용법’을 공유하는 구조라면,
+Spring Boot 기반 공통화는 ‘표준 아키텍처와 코드 규칙’을 공유하는 구조입니다.”
+
+2. 최종 모듈 구조(권장)와 의존성 방향
+2.1 멀티모듈 구조(전환 1차 권장: 내부 모듈)
+root
+ ├─ system-common
+ │   ├─ security         (AuthN/AuthZ, 권한합성, Filter)
+ │   ├─ error            (ErrorResponse, Exception, Advice)
+ │   ├─ logging          (AccessLog, MDC/TraceId, masking)
+ │   ├─ audit            (AuditLog, AuditService)
+ │   ├─ config           (profiles, properties, feature toggles)
+ │   ├─ api-contract     (ApiResponse, pageable 규약)
+ │   └─ file-core        (StorageClient, FileService, download policy)
+ │
+ ├─ business-common
+ │   ├─ common-code      (공통코드 + 캐시 + 관리자 API)
+ │   ├─ organization     (조직/겸직/이력/직위)
+ │   ├─ message          (업무메시지/I18n + (옵션)DB메시지)
+ │   └─ document-board   (문서/게시판 + 상태/이력 + 파일첨부 연결)
+ │
+ ├─ foundation-systems (선택: 기반시스템 별도 모듈)
+ │   ├─ batch            (Spring Batch Jobs)
+ │   └─ eai              (외부연계 Client/Flow)
+ │
+ └─ service-xxx (업무서비스들)
+     ├─ service-sales
+     ├─ service-hr
+     └─ ...
+2.2 의존성 방향(강제 규칙)
+service-* → system-common, business-common 사용 가능
+
+business-common → system-common 일부(계약/감사/에러 등)만 제한적으로 참조
+
+system-common 은 도메인을 몰라야 한다(최대한 독립)
+
+2.3 업무공통 “라이브러리 vs 내부 모듈” 결론
+추천 결론(현실형)
+전환 1차(구축~안정화): 내부 멀티모듈(모노레포)
+
+정책 변경/요구사항 폭주/디버깅 빈번 → jar 버전 관리로 묶으면 생산성 급락
+
+안정화 이후(운영 3~6개월+): 선별 라이브러리화
+
+“정책이 거의 변하지 않는 것”만 후보
+
+상사 설득 문장
+“업무공통은 정책 변경이 잦기 때문에 전환 초기에는 내부 모듈이 안정성과 생산성 면에서 유리하고, 정책이 고정된 이후 라이브러리화하는 것이 합리적입니다.”
+
+3. 시스템공통(System Common) 최종 정리 + 코드 예시
+아래 모든 항목은 “설명 → Spring Boot 3.2.5 최소 코드 → Nexcore 대비 향상 포인트” 순서로 통일한다.
+
+3.1 인증/인가(Security)
+① 설명
+사용자 인증(Authentication): SSO/JWT/OAuth2/사내 인증 연계
+
+인가(Authorization): Role/Authority 기반 접근 제어
+
+URL/API 접근 통제는 시스템공통에서 강제해야 함(업무서비스에 흩어지면 위험)
+
+② Spring Boot 3.2.5 예시 코드
+package com.example.demo.system.security;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+public class SecurityConfig {
+
+    @Bean
+    SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http.csrf(csrf -> csrf.disable());
+
+        http.authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/orders/**").hasAuthority("ORDER_READ")
+                .anyRequest().authenticated()
+        );
+
+        // 전환 초기: Basic으로 빠르게, 안정화 후 JWT/SSO로 확장
+        http.httpBasic(Customizer.withDefaults());
+        return http.build();
+    }
+}
+③ Nexcore 대비 향상 포인트
+Filter 중심/프레임워크 종속 → SecurityFilterChain 표준 구조로 명확
+
+설정/정책이 Java Config로 가시화 → 리뷰/테스트/변경이 쉬움
+
+JWT/OAuth2/SAML 등 확장 자연스러움
+
+3.2 공통 로그 + TraceId(MDC) + 구조화 로그 기반
+① 설명
+운영/장애 분석을 위한 Access Log
+
+시스템 전 구간 추적을 위한 TraceId
+
+로그는 “많이”가 아니라 일관되게/검색 가능하게/개인정보 안전하게가 핵심
+
+② Spring Boot 3.2.5 예시 코드(TraceId Filter + Access Log Filter)
+package com.example.demo.system.trace;
+
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.MDC;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.util.UUID;
+
+@Component
+public class TraceIdFilter implements Filter {
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+        HttpServletRequest req = (HttpServletRequest) request;
+        try {
+            MDC.put("traceId", UUID.randomUUID().toString().replace("-", ""));
+            MDC.put("path", req.getRequestURI());
+            MDC.put("method", req.getMethod());
+            chain.doFilter(request, response);
+        } finally {
+            MDC.clear();
+        }
+    }
+}
+package com.example.demo.system.logging;
+
+import jakarta.servlet.*;
+import jakarta.servlet.http.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+@Component
+public class AccessLogFilter implements Filter {
+    private static final Logger log = LoggerFactory.getLogger("ACCESS_LOG");
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws java.io.IOException, ServletException {
+        HttpServletRequest req = (HttpServletRequest) request;
+        HttpServletResponse res = (HttpServletResponse) response;
+
+        long start = System.currentTimeMillis();
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            long tookMs = System.currentTimeMillis() - start;
+            log.info("ACCESS method={} path={} status={} tookMs={}",
+                    req.getMethod(), req.getRequestURI(), res.getStatus(), tookMs);
+        }
+    }
+}
+③ Nexcore 대비 향상 포인트
+traceId 표준화(MDC)로 원인 추적 능력 급상승
+
+ELK/OpenSearch 연계에 적합한 구조화 로그 설계가 쉬움
+
+AOP/Filter 기반으로 업무 코드 오염 최소화
+
+3.3 감사 로그(Audit)
+① 설명
+“누가(actor) / 무엇을(target) / 어떻게(action) / 전후(before/after)”
+
+특히 권한/메뉴/조직/공통코드/문서 상태 변경은 DB 기반 Audit이 강력
+
+② 예시 테이블(권장)
+AUDIT_LOG(audit_id, trace_id, actor_user_id, actor_ip, action_type, target_type, target_id, before_json, after_json, created_at)
+
+③ Spring Boot 예시 코드(AuditService)
+package com.example.demo.system.audit;
+
+import org.slf4j.MDC;
+import org.springframework.stereotype.Service;
+
+import java.time.Instant;
+
+@Service
+public class AuditService {
+
+    private final AuditLogRepository repo;
+
+    public AuditService(AuditLogRepository repo) {
+        this.repo = repo;
+    }
+
+    public void log(String actorUserId, String actorIp,
+                    String actionType, String targetType, String targetId,
+                    String beforeJson, String afterJson) {
+
+        repo.save(new AuditLog(
+                null,
+                MDC.get("traceId"),
+                actorUserId,
+                actorIp,
+                actionType,
+                targetType,
+                targetId,
+                beforeJson,
+                afterJson,
+                Instant.now()
+        ));
+    }
+
+    public record AuditLog(
+            Long auditId, String traceId, String actorUserId, String actorIp,
+            String actionType, String targetType, String targetId,
+            String beforeJson, String afterJson, Instant createdAt
+    ) {}
+}
+④ Nexcore 대비 향상 포인트
+감사가 “수동/누락”이 아니라 정책 변경 지점(Service)에서 강제
+
+변경 이력/정합성/통제 측면에서 상사/감사팀 설득력 큼
+
+3.4 예외 처리 + 에러 표준
+① 설명
+에러 응답 포맷이 제각각이면 프론트/운영이 지옥
+
+“재시도 가능(retryable)” 같은 운영형 필드가 매우 중요
+
+@RestControllerAdvice 기반 중앙집중 처리
+
+② ErrorResponse 표준 DTO
+package com.example.demo.system.error;
+
+import java.time.Instant;
+import java.util.Map;
+
+public record ErrorResponse(
+        Instant timestamp,
+        String traceId,
+        String path,
+        int httpStatus,
+        String errorCode,
+        String message,
+        boolean retryable,
+        Map<String, Object> details
+) {}
+③ AppException + GlobalExceptionHandler
+package com.example.demo.system.error;
+
+import org.springframework.http.HttpStatus;
+
+import java.util.Map;
+
+public class AppException extends RuntimeException {
+    private final String errorCode;
+    private final HttpStatus status;
+    private final boolean retryable;
+    private final Map<String, Object> details;
+
+    public AppException(String errorCode, String message, HttpStatus status,
+                        boolean retryable, Map<String, Object> details) {
+        super(message);
+        this.errorCode = errorCode;
+        this.status = status;
+        this.retryable = retryable;
+        this.details = details;
+    }
+    public String getErrorCode() { return errorCode; }
+    public HttpStatus getStatus() { return status; }
+    public boolean isRetryable() { return retryable; }
+    public Map<String, Object> getDetails() { return details; }
+}
+package com.example.demo.system.error;
+
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.MDC;
+import org.springframework.http.*;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.Instant;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(AppException.class)
+    public ResponseEntity<ErrorResponse> handleApp(AppException e, HttpServletRequest req) {
+        return ResponseEntity.status(e.getStatus())
+                .body(build(req, e.getStatus(), e.getErrorCode(), e.getMessage(),
+                        e.isRetryable(), e.getDetails()));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValid(MethodArgumentNotValidException e, HttpServletRequest req) {
+        Map<String, Object> details = e.getBindingResult().getFieldErrors().stream()
+                .collect(Collectors.groupingBy(FieldError::getField,
+                        Collectors.mapping(FieldError::getDefaultMessage, Collectors.toList())));
+
+        return ResponseEntity.badRequest()
+                .body(build(req, HttpStatus.BAD_REQUEST, "SY-01-001",
+                        "요청 값이 올바르지 않습니다.", false, Map.of("fields", details)));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleUnknown(Exception e, HttpServletRequest req) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(build(req, HttpStatus.INTERNAL_SERVER_ERROR, "SY-99-999",
+                        "시스템 오류가 발생했습니다.", false, Map.of()));
+    }
+
+    private ErrorResponse build(HttpServletRequest req, HttpStatus status,
+                                String errorCode, String message, boolean retryable,
+                                Map<String, Object> details) {
+        return new ErrorResponse(
+                Instant.now(),
+                Optional.ofNullable(MDC.get("traceId")).orElse("-"),
+                req.getRequestURI(),
+                status.value(),
+                errorCode,
+                message,
+                retryable,
+                details == null ? Map.of() : details
+        );
+    }
+}
+④ Nexcore 대비 향상 포인트
+에러 표준 계약(프론트/운영) 고정
+
+traceId 연계로 장애 원인 추적 용이
+
+검증(@Valid) 오류도 자동 표준화
+
+3.5 트랜잭션 관리
+① 설명
+선언적 트랜잭션(@Transactional)로 원자성/롤백 규칙을 명확히
+
+테스트 환경에서도 동일하게 동작
+
+② 예시 코드
+package com.example.demo.business.order;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+public class OrderService {
+
+    @Transactional
+    public void createOrder() {
+        // insert order
+        // insert order item
+        // 하나라도 실패하면 전체 롤백
+    }
+}
+③ Nexcore 대비 향상 포인트
+전파옵션/롤백 규칙 가시성 ↑
+
+테스트/리뷰/장애 분석 용이
+
+3.6 공통 설정/환경/프로파일 + Feature Toggle
+① 설명
+환경(dev/stg/prod) 분리
+
+비밀정보는 환경변수/Vault/Secret로 주입
+
+기능 ON/OFF는 Feature Toggle로 운영 민첩성 확보
+
+② application.yml 예시(요지)
+spring:
+  application:
+    name: demo-app
+
+feature:
+  cache-enabled: true
+  init-enabled: false
+③ @ConfigurationProperties 예시
+package com.example.demo.system.config;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+
+@Component
+@ConfigurationProperties(prefix = "feature")
+public class FeatureProperties {
+    private boolean cacheEnabled;
+    private boolean initEnabled;
+
+    public boolean isCacheEnabled() { return cacheEnabled; }
+    public void setCacheEnabled(boolean cacheEnabled) { this.cacheEnabled = cacheEnabled; }
+    public boolean isInitEnabled() { return initEnabled; }
+    public void setInitEnabled(boolean initEnabled) { this.initEnabled = initEnabled; }
+}
+④ Nexcore 대비 향상 포인트
+“설정 = 코드”가 아니라 “설정 = 환경”으로 분리
+
+재배포 의존도 감소, 운영 통제력 상승
+
+3.7 공통 API 규격 + Validation
+① 설명
+프론트/백 계약을 고정하면 생산성이 폭발한다
+
+성공 응답: ApiResponse
+
+실패 응답: ErrorResponse
+
+페이징/정렬: page/size/sort 표준화
+
+입력검증: @Valid로 진입 전에 차단
+
+② ApiResponse 예시
+package com.example.demo.system.api;
+
+import org.slf4j.MDC;
+import java.util.Map;
+
+public record ApiResponse<T>(
+        boolean success,
+        T data,
+        Map<String, Object> meta,
+        String traceId
+) {
+    public static <T> ApiResponse<T> ok(T data) {
+        return new ApiResponse<>(true, data, Map.of(), MDC.get("traceId"));
+    }
+    public static <T> ApiResponse<T> ok(T data, Map<String, Object> meta) {
+        return new ApiResponse<>(true, data, meta, MDC.get("traceId"));
+    }
+}
+③ Validation DTO 예시
+package com.example.demo.business.order;
+
+import jakarta.validation.constraints.*;
+
+public record CreateOrderRequest(
+        @NotBlank(message = "customerId는 필수입니다.")
+        String customerId,
+
+        @Min(value = 1, message = "quantity는 1 이상이어야 합니다.")
+        int quantity
+) {}
+④ Nexcore 대비 향상 포인트
+응답/검증/페이징이 표준화되어 “서비스가 늘어도” 예측 가능
+
+프론트-백 분업 효율 극대화
+
+4. 업무공통(Business Common) 최종 정리 + 코드 예시
+업무공통은 “정책 자산”이므로 변경/운영/감사를 고려해 설계한다.
+
+4.1 공통코드(Common Code)
+① 설명
+공통코드는 업무 정책의 사전(Dictionary)
+
+화면 옵션/상태값/업무 분기 기준값
+
+조회 빈도가 매우 높아 캐시 필수
+
+② 테이블(권장)
+COMMON_CODE_GROUP(group_code PK, group_name, use_yn, ...)
+
+COMMON_CODE(group_code FK, code_value, code_name, sort_seq, use_yn, ... PK=(group_code, code_value))
+
+③ Service + Cache 예시
+package com.example.demo.business.commoncode;
+
+import org.springframework.cache.annotation.*;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class CommonCodeService {
+
+    @Cacheable(value = "commonCodes", key = "#groupCode")
+    public List<CommonCodeDto> getCodes(String groupCode) {
+        // DB 조회로 교체
+        return List.of(
+                new CommonCodeDto("READY", "준비중", 1),
+                new CommonCodeDto("DONE", "완료", 2)
+        );
+    }
+
+    @CacheEvict(value = "commonCodes", key = "#groupCode")
+    public void replaceCodes(String groupCode, List<CommonCodeDto> codes) {
+        // 전체 치환(운영 정합성 강함) + Audit
+    }
+
+    public record CommonCodeDto(String code, String name, int sortSeq) {}
+}
+④ 향상 포인트
+캐시(Caffeine/Redis) 적용 쉬움
+
+프론트/백 공통 규약 정립 가능
+
+관리자 변경 시 Audit로 정책 변경 추적 가능
+
+4.2 조직도(Organization)
+① 설명
+조직도는 단순 트리가 아니라 업무 책임/권한 부여/결재/조회 범위의 기준 데이터
+
+겸직/이력/직위는 “현업에서 옵션이 아니라 기본”
+
+Security(시스템공통)와 직접 결합 금지 (매핑 계층으로 연결)
+
+② 테이블(권장)
+ORG(dept_code PK, parent_dept_code, dept_name, sort_seq, use_yn, ...)
+
+USER_ORG(user_id, dept_code, position_code, is_primary, start_dt, end_dt, PK=(user_id, dept_code, start_dt))
+
+(선택) POSITION(position_code PK, position_name, ...)
+
+③ 트리 구성(Adjacency List + 메모리 구성) 예시
+package com.example.demo.business.organization;
+
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+@Service
+public class OrganizationService {
+
+    public List<OrgNode> getOrgTree() {
+        List<OrgEntity> all = findAllOrgs(); // DB 조회로 교체
+
+        Map<String, OrgNode> map = new HashMap<>();
+        for (OrgEntity e : all) {
+            map.put(e.deptCode, new OrgNode(e.deptCode, e.deptName, new ArrayList<>()));
+        }
+
+        List<OrgNode> roots = new ArrayList<>();
+        for (OrgEntity e : all) {
+            OrgNode node = map.get(e.deptCode);
+            if (e.parentDeptCode == null) roots.add(node);
+            else map.get(e.parentDeptCode).children.add(node);
+        }
+        return roots;
+    }
+
+    // 최소 예시용
+    private List<OrgEntity> findAllOrgs() {
+        return List.of(new OrgEntity("HQ", "본사", null),
+                       new OrgEntity("SALES", "영업", "HQ"));
+    }
+
+    public static class OrgEntity {
+        String deptCode; String deptName; String parentDeptCode;
+        public OrgEntity(String deptCode, String deptName, String parentDeptCode) {
+            this.deptCode = deptCode; this.deptName = deptName; this.parentDeptCode = parentDeptCode;
+        }
+    }
+
+    public static class OrgNode {
+        public String deptCode; public String deptName; public List<OrgNode> children;
+        public OrgNode(String deptCode, String deptName, List<OrgNode> children) {
+            this.deptCode = deptCode; this.deptName = deptName; this.children = children;
+        }
+    }
+}
+④ 향상 포인트
+조직 정책을 명시적 도메인으로 표현 → 영향도 분석/테스트 가능
+
+겸직/이력 모델로 현실 대응
+
+권한은 매핑으로만 연결 → 조직개편 리스크 최소화
+
+4.3 메시지(Message / I18n / 업무메시지 코드)
+① 설명
+메시지는 문자열이 아니라 업무 의미 전달 자산
+
+하드코딩 제거, 코드 기반 표준화, 다국어 확장
+
+에러 코드(SY-xx-xxx)와 업무 메시지 코드는 구분(섞지 않음)
+
+② MessageSource 설정 예시
+package com.example.demo.business.message;
+
+import org.springframework.context.MessageSource;
+import org.springframework.context.annotation.*;
+import org.springframework.context.support.ReloadableResourceBundleMessageSource;
+import org.springframework.stereotype.Service;
+
+import java.util.Locale;
+
+@Configuration
+class MessageConfig {
+    @Bean
+    ReloadableResourceBundleMessageSource messageSource() {
+        ReloadableResourceBundleMessageSource ms = new ReloadableResourceBundleMessageSource();
+        ms.setBasename("classpath:messages");
+        ms.setDefaultEncoding("UTF-8");
+        ms.setCacheSeconds(60);
+        return ms;
+    }
+}
+
+@Service
+public class BusinessMessageService {
+    private final MessageSource messageSource;
+    public BusinessMessageService(MessageSource messageSource) {
+        this.messageSource = messageSource;
+    }
+    public String get(String code, Locale locale, Object... args) {
+        return messageSource.getMessage(code, args, locale);
+    }
+}
+③ 향상 포인트
+MessageSource 기반 국제화 표준
+
+(확장) DB 메시지+캐시로 운영 즉시 반영 가능
+
+프론트/백이 같은 메시지 코드로 의미 통일
+
+4.4 문서서식/게시판(Document / Board)
+① 설명(가장 중요)
+게시판 = 글 CRUD가 아니라 상태(State)를 가진 업무 엔티티
+
+서식(Form)과 문서(Document) 분리
+
+문서 이력/감사/첨부/권한/조직/메시지를 한 구조로 수렴해야 확장된다
+
+② 권장 테이블
+DOC_FORM(form_code PK, form_name, use_yn, ...)
+
+DOCUMENT(document_id PK, form_code FK, title, content(JSON/TEXT), status, owner_user_id, owner_dept_code, ...)
+
+DOCUMENT_HISTORY(history_id PK, document_id, action_type, actor_user_id, before_status, after_status, comment, created_at)
+
+DOCUMENT_FILE(file_id, document_id, ...) (파일 자체는 파일모듈에서 관리, 문서는 참조만)
+
+③ 상태 전이(Service에서만) 예시
+package com.example.demo.business.document;
+
+import org.springframework.stereotype.Service;
+
+@Service
+public class DocumentService {
+
+    public enum DocumentStatus { DRAFT, SUBMITTED, APPROVED, REJECTED, CLOSED }
+
+    public void submit(Long documentId, String userId) {
+        Document doc = find(documentId);
+
+        if (doc.status != DocumentStatus.DRAFT) {
+            throw new IllegalStateException("제출 불가 상태");
+        }
+        if (!doc.ownerUserId.equals(userId)) {
+            throw new SecurityException("작성자만 제출 가능");
+        }
+
+        DocumentStatus before = doc.status;
+        doc.status = DocumentStatus.SUBMITTED;
+        saveHistory(documentId, "SUBMIT", userId, before.name(), doc.status.name());
+    }
+
+    // 최소 예시용
+    private Document find(Long id) {
+        return new Document(id, "user1", DocumentStatus.DRAFT);
+    }
+    private void saveHistory(Long id, String action, String actor, String before, String after) {
+        // DOCUMENT_HISTORY + AUDIT_LOG 남기기
+    }
+
+    static class Document {
+        Long id; String ownerUserId; DocumentStatus status;
+        Document(Long id, String ownerUserId, DocumentStatus status) {
+            this.id = id; this.ownerUserId = ownerUserId; this.status = status;
+        }
+    }
+}
+④ 향상 포인트
+문서/게시판을 통합 설계하면 신규 프로세스 확장이 쉬움
+
+이력/감사로 변경 추적 완전 대응
+
+권한 판단은 “API 접근(Security) + 업무행위(Service 정책)”로 이중 안전장치
+
+5. “경계 항목” 분류: 조직도/문서서식·게시판/권한/메시지
+항목	분류	이유(한 줄)
+조직도	업무공통	조직 정책은 계속 변하고 업무 흐름의 기준 데이터
+문서서식/게시판	업무공통	업무 프로세스와 상태를 담는 엔티티
+권한	시스템공통	모든 시스템에 동일하게 적용되는 접근 통제
+메시지	업무공통	업무 의미(다국어/정책 변경) 중심 자산
+원칙
+
+업무 규칙이 바뀌면 같이 바뀌는가? → 업무공통
+
+업무와 무관하게 항상 적용되는가? → 시스템공통
+
+6. 권한/조직/메뉴/화면 “전체 권한 모델” (최종)
+6.1 핵심 결론(한 줄)
+권한 판정 엔진은 시스템공통(Authorization)이고,
+조직도는 업무공통(정책 데이터)이며,
+둘은 직접 결합하지 않고 ‘매핑 계층(ORG→ROLE)’로 연결한다.
+
+6.2 개념 모델
+User(사용자)
+
+Org(조직/겸직/직위/이력) = 업무공통
+
+Role(역할) = 보안/정책 단위
+
+Authority(권한) = 기술적 접근 단위(예: ORDER_READ)
+
+Resource(자원) = 메뉴/화면/API
+
+Permission(허용 규칙) = Role이 Resource에 대해 수행 가능한 행위
+
+원칙
+
+Security는 Org를 모른다.
+
+Security는 Role/Authority만 판단한다.
+
+Org는 Role을 생성하는 “입력 데이터”일 뿐이다.
+
+6.3 추천 DB 스키마(최소 + 운영형)
+(A) 조직/사용자(업무공통)
+ORG(dept_code PK, parent_dept_code, dept_name, level, use_yn, …)
+
+APP_USER(user_id PK, login_id UK, user_name, status, …)
+
+USER_ORG(user_id, dept_code, is_primary, start_dt, end_dt, PK=(user_id, dept_code, start_dt))
+
+(B) Role/Authority(시스템공통)
+ROLE(role_code PK, role_name, use_yn, …)
+
+AUTHORITY(auth_code PK, auth_name, use_yn, …)
+
+ROLE_AUTHORITY(role_code, auth_code, PK=(role_code, auth_code))
+
+(C) Org→Role 매핑(연결 계층: 업무정책 테이블로 두는 것을 추천)
+ORG_ROLE_MAP(dept_code, role_code, priority, effect_type(ALLOW/DENY), use_yn, PK=(dept_code, role_code))
+
+(D) 메뉴/화면(UX)
+MENU(menu_id PK, parent_menu_id, menu_name, route_path, sort_seq, use_yn, …)
+
+(선택) SCREEN(screen_id PK, screen_name, route_path, menu_id FK, use_yn, …)
+
+(E) Role→Menu/Screen(UX 권한)
+ROLE_MENU(role_code, menu_id, can_view, can_edit, PK=(role_code, menu_id))
+
+(선택) ROLE_SCREEN(role_code, screen_id, can_view, can_edit, PK=(role_code, screen_id))
+
+권장 운영 전략
+
+API 접근은 Authority(Security)로 강제
+
+메뉴/화면은 UX 표시용(RoleMenu)로 제공
+
+“UI는 편의, 보안은 API” 원칙 절대 유지
+
+7. 관리자 “권한/메뉴 관리 API 설계서” (테이블 + API 목록)
+7.1 설계 원칙
+관리자 API는 /api/admin/** 로 통일
+
+보호 정책: ROLE_ADMIN 또는 AUTH_ADMIN 등 강한 권한으로 보호
+
+매핑 변경은 전체 치환(Replace) 방식 권장
+→ 정합성/운영 실수 최소화, before/after 감사로그 남기기 용이
+
+7.2 관리자 API 목록(최종)
+1) Role 관리
+GET /api/admin/roles
+
+POST /api/admin/roles
+
+PUT /api/admin/roles/{roleCode}
+
+DELETE /api/admin/roles/{roleCode} (권장: use_yn=N 소프트)
+
+2) Authority 관리
+GET /api/admin/authorities
+
+POST /api/admin/authorities
+
+PUT /api/admin/authorities/{authCode}
+
+DELETE /api/admin/authorities/{authCode} (소프트 권장)
+
+3) Role ↔ Authority 매핑(전체 치환)
+GET /api/admin/roles/{roleCode}/authorities
+
+PUT /api/admin/roles/{roleCode}/authorities
+
+{ "authCodes": ["ORDER_READ","ORDER_WRITE"] }
+4) Menu 관리
+GET /api/admin/menus (옵션: includeDisabled)
+
+POST /api/admin/menus
+
+PUT /api/admin/menus/{menuId}
+
+DELETE /api/admin/menus/{menuId} (소프트 권장)
+
+PUT /api/admin/menus/reorder (트리/정렬 일괄 반영)
+
+5) Role ↔ Menu(UX) 매핑(전체 치환)
+GET /api/admin/roles/{roleCode}/menus
+
+PUT /api/admin/roles/{roleCode}/menus
+
+{
+  "items":[
+    {"menuId":1,"canView":"Y","canEdit":"N"},
+    {"menuId":2,"canView":"Y","canEdit":"Y"}
+  ]
+}
+6) Org ↔ Role(조직 기반 권한 정책) 매핑(전체 치환)
+GET /api/admin/orgs/{deptCode}/roles
+
+PUT /api/admin/orgs/{deptCode}/roles
+
+{ "items":[ {"roleCode":"SALES_MGR","priority":1,"useYn":"Y","effectType":"ALLOW"} ] }
+7) (일반 사용자용) 내 메뉴 조회
+GET /api/ui/menus
+
+로그인 사용자의 Authorities/RoleMenu 합성 → 메뉴 트리 제공
+
+8. 권한 합성 로직 심화(겸직/우선순위/Deny) + 캐시 + 감사로그
+8.1 왜 이게 “전환 성공의 핵심”인가
+전환 프로젝트 실패 패턴 대부분이 여기서 터진다.
+
+겸직/대행/임시권한 고려 누락
+
+UI 권한과 API 권한 불일치
+
+권한 변경 이력 추적 불가
+
+8.2 합성 원칙(결정판)
+Security 엔진은 Authority만 판단
+
+조직/직위/겸직은 Role 생성 입력 데이터
+
+Role은 여러 개 가능
+
+Authority는 Role들의 합집합
+
+Deny는 Allow보다 우선
+
+합성 결과는 캐시 + 변경 시 무효화
+
+8.3 합성 흐름
+사용자 조직(USER_ORG) 조회(겸직 포함)
+
+조직→Role(ORG_ROLE_MAP) 조회(priority/effect_type 포함)
+
+Role→Authority(ROLE_AUTHORITY) 조회
+
+FINAL_AUTH = ALLOW_AUTH - DENY_AUTH
+
+SecurityContext에 반영 + 캐시
+
+변경 이벤트 발생 시 캐시 무효화 + Audit
+
+8.4 합성 코드(핵심)
+package com.example.demo.system.security;
+
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+@Service
+public class AuthorityComposeService {
+
+    public enum EffectType { ALLOW, DENY }
+
+    public record RolePolicy(
+            String roleCode,
+            EffectType effectType,
+            List<String> authorities
+    ) {}
+
+    public Set<String> composeAuthorities(List<RolePolicy> rolePolicies) {
+        Set<String> allow = new HashSet<>();
+        Set<String> deny = new HashSet<>();
+
+        for (RolePolicy rp : rolePolicies) {
+            if (rp.effectType() == EffectType.ALLOW) allow.addAll(rp.authorities());
+            else deny.addAll(rp.authorities());
+        }
+
+        allow.removeAll(deny);
+        return allow;
+    }
+}
+8.5 캐시 전략(운영형)
+캐시 키: userId
+
+값: 최종 Authority Set
+
+무효화 트리거:
+
+사용자 조직 변경(USER_ORG 변경)
+
+Org→Role 변경(ORG_ROLE_MAP 변경)
+
+Role→Authority 변경(ROLE_AUTHORITY 변경)
+
+초기: Caffeine 로컬 캐시
+멀티 인스턴스/분산: Redis로 확장
+
+9. 파일/스토리지(File/Storage) “기술 vs 업무” 분리 최종
+9.1 분류(중요)
+system-common: 업로드/다운로드 기술, 스토리지 추상화, 보안/스캔 훅, 스트리밍
+
+business-common: 문서/게시판/업무엔티티에 “첨부 규칙/카테고리/보존정책”으로 연결
+
+9.2 테이블(권장)
+FILE_OBJECT(파일 메타)
+file_id(PK, UUID)
+
+storage_type(LOCAL/NAS/S3)
+
+bucket_or_root
+
+object_key
+
+original_name, content_type, size_bytes
+
+sha256(선택)
+
+owner_user_id
+
+created_at
+
+deleted_yn
+
+FILE_ATTACHMENT(업무 연결)
+attach_id(PK)
+
+file_id(FK)
+
+ref_type(DOCUMENT/BOARD/…)
+
+ref_id
+
+category
+
+sort_seq
+
+created_at
+
+(옵션) FILE_ACCESS_POLICY(정책)
+ref_type, category, max_size_mb, allowed_mime, retention_days, scan_required_yn …
+
+9.3 저장소 추상화 + 업로드/다운로드 토큰 예시
+package com.example.demo.system.file;
+
+import java.io.InputStream;
+
+public interface StorageClient {
+    StoredObject put(String objectKey, InputStream in, long size, String contentType);
+    InputStream get(String objectKey);
+    void delete(String objectKey);
+    String createDownloadUrl(String objectKey, int expireSeconds); // presigned URL
+    record StoredObject(String objectKey) {}
+}
+package com.example.demo.system.file;
+
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.UUID;
+
+@Service
+public class FileService {
+
+    private final StorageClient storageClient;
+    private final FileRepository fileRepository;
+
+    public FileService(StorageClient storageClient, FileRepository fileRepository) {
+        this.storageClient = storageClient;
+        this.fileRepository = fileRepository;
+    }
+
+    public String upload(MultipartFile file, String ownerUserId) throws Exception {
+        String fileId = UUID.randomUUID().toString();
+        String objectKey = "uploads/" + fileId;
+
+        storageClient.put(objectKey, file.getInputStream(), file.getSize(), file.getContentType());
+
+        fileRepository.save(new FileObject(
+                fileId, "S3", "my-bucket", objectKey,
+                file.getOriginalFilename(), file.getContentType(), file.getSize(), ownerUserId
+        ));
+        return fileId;
+    }
+
+    public String createDownloadUrl(String fileId) {
+        FileObject fo = fileRepository.findById(fileId);
+        return storageClient.createDownloadUrl(fo.objectKey(), 300);
+    }
+
+    public record FileObject(
+            String fileId, String storageType, String bucketOrRoot, String objectKey,
+            String originalName, String contentType, long sizeBytes, String ownerUserId
+    ) {}
+}
+package com.example.demo.system.file;
+
+import com.example.demo.system.api.ApiResponse;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+@RestController
+@RequestMapping("/api/files")
+public class FileController {
+
+    private final FileService service;
+
+    public FileController(FileService service) {
+        this.service = service;
+    }
+
+    @PostMapping("/upload")
+    public ApiResponse<String> upload(@RequestPart MultipartFile file,
+                                      @AuthenticationPrincipal UserDetails user) throws Exception {
+        return ApiResponse.ok(service.upload(file, user.getUsername()));
+    }
+
+    @GetMapping("/{fileId}/download-token")
+    public ApiResponse<String> downloadToken(@PathVariable String fileId) {
+        return ApiResponse.ok(service.createDownloadUrl(fileId));
+    }
+}
+9.4 운영/보안 체크리스트(필수)
+확장자/MIME 화이트리스트 + 크기 제한(프로퍼티)
+
+대용량 파일 스트리밍(메모리 적재 금지)
+
+다운로드 권한 체크(attachment ref 기준)
+
+soft delete + 지연 물리 삭제(복구/감사)
+
+Audit 이벤트: UPLOAD / ATTACH / DELETE / DOWNLOAD_TOKEN_ISSUE
+
+10. 배치(Spring Batch) – 파일/업무 기반 운영 패턴(최종)
+10.1 배치가 필요한 이유(현실)
+soft delete 후 물리 삭제 지연(복구/감사/반복요청 대비)
+
+바이러스 스캔/격리(업로드 직후 비동기)
+
+보존기간 만료(RETENTION) 일괄 처리
+
+장애 시 재시도/재개(restart) 필요
+
+10.2 권장 Job 3종 세트
+VirusScanJob: scan_required_yn=Y & scan_status=PENDING 대상 스캔
+
+FileRetentionJob: 보존기간 만료 → soft delete + purge_due_at 설정 + Audit
+
+FilePurgeJob: purge_due_at 도달한 soft-deleted 파일을 스토리지에서 실제 삭제
+
+10.3 스토리지 삭제 잡 예시(간단 Tasklet)
+package com.example.demo.batch;
+
+import com.example.demo.system.file.StorageClient;
+import org.springframework.batch.core.*;
+import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.step.builder.StepBuilder;
+import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.context.annotation.*;
+import org.springframework.transaction.PlatformTransactionManager;
+
+import java.time.Instant;
+
+@Configuration
+public class FilePurgeJobConfig {
+
+    @Bean
+    public Job filePurgeJob(JobRepository jobRepository, Step filePurgeStep) {
+        return new JobBuilder("filePurgeJob", jobRepository)
+                .start(filePurgeStep)
+                .build();
+    }
+
+    @Bean
+    public Step filePurgeStep(JobRepository jobRepository,
+                              PlatformTransactionManager txManager,
+                              FileObjectBatchRepository repo,
+                              StorageClient storageClient) {
+
+        return new StepBuilder("filePurgeStep", jobRepository)
+                .tasklet((contribution, chunkContext) -> {
+                    Instant now = Instant.now();
+                    var targets = repo.findPurgeTargets(500, now);
+
+                    for (var t : targets) {
+                        try {
+                            storageClient.delete(t.objectKey());
+                            repo.markStorageDeleted(t.fileId(), now);
+                        } catch (Exception e) {
+                            repo.markPurgeFailed(t.fileId(), e.getMessage(), now);
+                        }
+                    }
+                    return RepeatStatus.FINISHED;
+                }, txManager)
+                .build();
+    }
+
+    public interface FileObjectBatchRepository {
+        java.util.List<Row> findPurgeTargets(int limit, Instant now);
+        void markStorageDeleted(String fileId, Instant at);
+        void markPurgeFailed(String fileId, String reason, Instant at);
+        record Row(String fileId, String objectKey) {}
+    }
+}
+11. 외부연계(EAI/WebService) – HTTP → SOAP 교체 가능한 구조(최종)
+11.1 원칙
+Client(통신)과 Flow(업무 오케스트레이션) 분리
+
+표준 결과 계약(resultCode/resultMessage/externalResult) 고정
+
+Timeout/Retry/CircuitBreaker는 Client 레이어에서
+
+TraceId/RequestId를 로그/MDC에 포함
+
+11.2 인터페이스(HTTP/SOAP 공용)
+package com.example.demo.eai;
+
+public interface EaiClient {
+    ExternalResponse call(ExternalRequest request);
+
+    record ExternalRequest(String txId, String payload) {}
+    record ExternalResponse(String extCode, String extMessage, String extRaw) {}
+}
+11.3 Flow(업무는 고정, Client만 교체)
+package com.example.demo.eai;
+
+import org.springframework.stereotype.Service;
+
+@Service
+public class EaiFlowService {
+
+    private final EaiClient eaiClient;
+
+    public EaiFlowService(EaiClient eaiClient) {
+        this.eaiClient = eaiClient;
+    }
+
+    public EaiStandardResult execute(String txId, String payload) {
+        var extRes = eaiClient.call(new EaiClient.ExternalRequest(txId, payload));
+
+        if ("0".equals(extRes.extCode()) || "0000".equals(extRes.extCode())) {
+            return new EaiStandardResult("0000", "SUCCESS", extRes.extMessage());
+        }
+        return new EaiStandardResult("9999", "FAIL", extRes.extMessage());
+    }
+
+    public record EaiStandardResult(String resultCode, String resultMessage, String externalResult) {}
+}
+11.4 HTTP 구현체(예시, WireMock과 궁합 좋음)
+package com.example.demo.eai.http;
+
+import com.example.demo.eai.EaiClient;
+import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.WebClient;
+
+@Component
+public class HttpEaiClient implements EaiClient {
+
+    private final WebClient webClient;
+
+    public HttpEaiClient(WebClient.Builder builder) {
+        this.webClient = builder.baseUrl("http://localhost:9090").build();
+    }
+
+    @Override
+    public ExternalResponse call(ExternalRequest request) {
+        String body = webClient.post()
+                .uri("/external-api")
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+
+        return new ExternalResponse("0000", "MOCK OK", body);
+    }
+}
+11.5 SOAP 확장
+SoapEaiClient implements EaiClient 추가
+
+@Profile("soap")로 교체
+→ Flow는 그대로, Client만 교체
+
+12. Nexcore에서 “조직/문서/권한/메시지”가 섞여 있을 때의 구조적 문제(최종 분석)
+12.1 책임 혼재(Responsibility Mixing)
+컨트롤러/서비스 한 곳에서 권한/조직/메시지/업무가 혼재
+
+변경 시 영향도 분석 불가 → 운영 장애 증가
+
+12.2 정책과 기술 결합(강결합)
+“부서코드=관리자” 같은 규칙이 여기저기 박힘
+
+동일 정책이 3군데 중복 → 누락/장애
+
+12.3 프레임워크 내부 블랙박스
+흐름 파악/커스터마이징/테스트가 어렵다
+
+경험 의존/표준화 실패
+
+12.4 테스트 불가/취약
+단위 테스트 분리가 불가능해 운영에서 발견
+
+장애 비용 증가
+
+12.5 Spring Boot 구조로 해결되는 지점
+권한은 시스템공통에서 강제
+
+조직/문서/메시지는 업무공통으로 모델링
+
+연결은 매핑 테이블 + 서비스 계층
+
+책임 단위로 쪼개져 테스트 가능
+
+13. Nexcore → Spring Boot 단계별 전환 로드맵(현실형)
+Phase 0: 분석/현황 진단
+시스템공통/업무공통/기반시스템 목록화
+
+정책 vs 기술 경계 확정(전환 성공의 50%)
+
+Phase 1: Foundation 구축(system-common)
+Security 기본틀(AuthN/AuthZ)
+
+Logging/Audit/TraceId
+
+Global Exception + ErrorResponse
+
+Config/Profiles/Feature Toggle
+
+표준 ApiResponse/Validation
+
+Phase 2: 저위험 공통 기능 선 이관(business-common 일부)
+공통코드(캐시), 메시지, 파일 연결, 페이징 표준
+
+Phase 3: 권한/메뉴/화면 권한 이관
+Role/Authority 정규화
+
+Org→Role 매핑 도입
+
+UI 메뉴 API 제공 + 관리자 운영 UI/API
+
+Phase 4: 업무서비스(service-xxx) 단계적 이관
+서비스 단위로 전환(“서비스 1개 = 배포 1개”가 이상적)
+
+Phase 5: 최적화/표준 고도화
+JWT/SSO 고도화, Observability 확대
+
+정책 고정된 공통만 선별 라이브러리화
+
+14. 상사용 1~2페이지 요약(문서에 그대로 붙여넣기)
+1페이지: 왜 전환하는가
+Nexcore 한계
+
+책임 혼재(권한/조직/문서/메시지)
+
+프레임워크 블랙박스(추적/테스트 어려움)
+
+표준 계약 부재(API/에러/로그 제각각)
+
+운영 민첩성 부족(설정 변경=재배포, 통제 약함)
+
+Spring Boot 3.2.5 전환 효과
+
+시스템공통/업무공통 책임 분리 → 영향도 감소
+
+Security/Validation/Exception/Config 표준 → 유지보수↑
+
+TraceId + 구조화 로그 + Audit → 운영/감사 대응↑
+
+캐시/스토리지 추상화 → 성능/확장성↑
+
+2페이지: 어떻게 전환하는가
+단계적 전환
+
+system-common(보안/로그/에러/설정/API계약)
+
+business-common(공통코드/조직/메시지/문서/파일 연결)
+
+service-xxx 단위 점진 전환
+
+안정화 후 일부 공통만 라이브러리화
+
+리스크 대응
+
+Feature Toggle로 병행 운영/즉시 OFF
+
+권한 합성/감사로그로 통제 강화
+
+표준 계약 고정으로 프론트/백 동시 생산성 확보
+
+15. 상사용 “최종 결론 슬라이드(한 장)” 텍스트
+제목
+Nexcore → Spring Boot 3.2.5 전환 결론: 표준 아키텍처로 운영·확장·유지보수 체질 개선
+
+핵심 4줄
+
+책임 분리: 시스템공통(보안/로그/에러/설정) + 업무공통(조직/문서/메시지/코드) 구조 고정
+
+운영 가시성: TraceId + 구조화 로그 + 감사로그로 장애/감사 대응력 향상
+
+민첩성: 설정/토글 기반 운영으로 변경 리드타임 단축(재배포 의존도 감소)
+
+확장성: 캐시·스토리지 추상화 및 모듈화로 서비스 단위 확장/분리 용이
+
+한 줄 결론
+
+“Nexcore는 기능 중심 공통, Spring Boot는 책임 중심 공통 — 전환은 운영과 개발의 표준화를 만드는 프로젝트입니다.”
+
+16. (부록) “전체 다이어그램(텍스트)” – 보고서/슬라이드용
+                ┌─────────────────────────────────────────────┐
+                │                Spring Boot 3.2.5             │
+                └─────────────────────────────────────────────┘
+
+┌───────────────────────┐         ┌───────────────────────────┐
+│      system-common     │         │       business-common      │
+│ (기술/인프라 공통)      │         │ (업무 정책 공통)            │
+│                       │         │                           │
+│  - AuthN/AuthZ        │         │  - Organization(조직/겸직)   │
+│  - Authority Compose  │         │  - Common Code(캐시)         │
+│  - Logging/TraceId    │         │  - Message(I18n/업무메시지)  │
+│  - Audit Log(DB)      │         │  - Document/Board(상태/이력) │
+│  - Error Standard     │         │  - Attachment Rules         │
+│  - Config/Profiles    │         │                           │
+│  - API Contract       │         └───────────┬───────────────┘
+│  - File Core(Storage) │                     │
+└───────────┬───────────┘                     │
+            │     (직접결합 금지: 매핑으로 연결) │
+            └───────────┬──────────────────────┘
+                        │  정책/매핑 계층
+                        │  - ORG_ROLE_MAP (ALLOW/DENY)
+                        │  - ROLE_AUTHORITY
+                        │  - ROLE_MENU/SCREEN (UX)
+                        │
+                 ┌──────▼──────┐
+                 │ service-xxx  │  업무서비스(도메인)
+                 │ - API        │
+                 │ - Business   │
+                 │ - DB Access  │
+                 └─────────────┘
