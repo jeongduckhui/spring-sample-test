@@ -1,0 +1,5 @@
+dependencies {
+    api project(':common-system')
+    api 'org.springframework:spring-tx'
+    api 'org.springframework.boot:spring-boot-starter-validation'
+}

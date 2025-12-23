@@ -1,0 +1,6 @@
+dependencies {
+    api project(':common-system')
+    // SOAP: Spring Web Services (JAX-WS/Axis1 대신)
+    api 'org.springframework.ws:spring-ws-core'
+    api 'org.springframework.boot:spring-boot-starter-web-services'
+}

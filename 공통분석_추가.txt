@@ -1,0 +1,623 @@
+0) 업로드 소스에서 보이는 “Nexcore 방식” 핵심 스냅샷
+네 zip들에서 확인되는 전형적인 특징(예시 파일/구조):
+
+Java EE EAR/WAR 배포 구조
+runtime/EarContent/..., web.war/WEB-INF/... 형태
+
+Spring “구버전 XML 중심” 구성
+config/component/nexcore-core.xml, nexcore-db.xml, nexcore-filter.xml, nexcore-channel-*.xml
+
+DB 접근이 iBATIS SQLMap 기반
+config/sql/*-sql-config.xml, SqlMapConfig.xml (iBATIS DTD)
+
+WebService가 Apache Axis 1.4 계열
+nexcore-channel-webservice.xml 에 Axis 핸들러/뷰 구조
+
+로깅이 log4j 1.2 계열
+log4j.xml, lib/log4j-1.2.15.jar 등
+
+빌드/운영이 Ant 중심(레거시 툴체인)
+build.xml 다수
+
+UI 채널이 XPlatform(또는 MIPlatform) 연계
+nexcore-channel-xplatform.xml 등
+
+이 조합은 “프레임워크가 플랫폼/서버/채널을 강하게 끌고 가는 방식”이라, 공통이 잘 잡혀있는 대신 **현대 Spring Boot 방식(컨벤션+오토컨피그+클라우드 네이티브)**과는 철학이 달라.
+
+1) 시스템공통 비교 (로깅/예외/보안/설정/트랜잭션/관제)
+Nexcore(업로드 소스) 방식
+설정이 컴포넌트 XML로 분리: core/db/filter/channel 등으로 “프레임워크가 정한 구조”를 따름
+
+로깅이 log4j 1.2 + Nexcore LogManager 래핑: 프레임워크 매니저/레벨관리자가 개입
+
+암복호화/키 관리가 프레임워크 제공: nexcore-core-crypto.xml + 별도 키 파일(예: .ser) 운용
+
+트랜잭션/DB가 Nexcore DB 레이어(ISqlManagerFactory 등)로 추상화: iBATIS + 커넥션/매니저 래핑
+
+필터/요청 처리 파이프라인이 “프레임워크 고정 구조”: nexcore-filter.xml 기반
+
+Nexcore 단점(주로 운영/보안/생산성에서 크게 체감)
+보안 리스크가 큰 레거시 스택
+log4j 1.2 / Axis 1.x / iBATIS 2.x 같은 조합은 “취약점/지원종료/패치 어려움”이 누적되기 쉬움.
+
+표준 생태계와 분리된 ‘자체 규약’ 비용
+Nexcore 매니저/채널/DB 추상화는 내부에 익숙하면 빠르지만, 외부 인력/신규 인력에게 온보딩 비용이 큼.
+
+관측성(Observability) 확장 어려움
+요즘 표준인 Micrometer/Actuator/OpenTelemetry 같은 걸 “원래 구조에 자연스럽게 끼우기”가 어려워서, 대체로 커스텀 작업이 많이 생김.
+
+설정/배포 단위가 무겁고 환경 종속적
+EAR + 서버(JEUS 등) + 채널 구조에 맞춰야 해서, 컨테이너/클라우드로 가기 어렵고 배포 민첩성이 떨어질 수 있음.
+
+Spring Boot 3.2.5로 전환 시 향상점
+최신 Spring 생태계 표준으로 ‘기본값이 강해짐’
+Spring Framework 6.x 기반, Java 17 기준, Jakarta 전환 포함 → 최신 보안/표준에 맞추기 쉬움.
+
+Actuator + Micrometer로 관제/헬스/메트릭 표준화
+헬스체크, readiness/liveness, metrics, tracing을 “제품처럼” 붙일 수 있음.
+
+설정 관리가 단순해짐
+application.yml + profile + 외부 설정(환경변수/Config Server 등)로 일관성 확보.
+
+로깅/예외 처리/필터 체인이 Spring 표준으로 정리
+logback + structured logging(JSON), MDC/trace id, ControllerAdvice 등으로 “표준 방식” 수렴.
+
+보안 옵션이 폭발적으로 늘어남
+Spring Security 6(OAuth2, JWT, SSO 연계, Resource Server 등)로 표준 구현 가능.
+
+2) 업무공통 비교 (업무 서비스 템플릿/검증/공통 DTO/코드체계)
+Nexcore(업로드 소스) 방식
+업무 로직이 보통 Biz 컴포넌트 + CommandProcessor + 채널(XPlatform/웹서비스) 어댑터 형태로 엮임
+→ “업무공통”이 프레임워크 흐름 안에서 강제되는 경향.
+
+공통 응답 포맷/에러코드/메시지/권한체계가 프레임워크에 기대어 구성되는 패턴이 많음.
+
+Nexcore 단점
+업무가 프레임워크 흐름에 종속되기 쉬움
+나중에 REST, 이벤트 기반, 스트리밍 같은 형태로 확장할 때 “채널/컨트롤러/요청모델”을 다시 맞추느라 비용이 커짐.
+
+테스트(단위/통합) 구조가 무거워지기 쉬움
+레거시 컨테이너/매니저 초기화가 필요하면 테스트 격리가 어려움.
+
+Spring Boot 3.2.5 전환 시 향상점
+업무공통을 ‘프레임워크 강제’가 아니라 ‘라이브러리/스타터’로 제공 가능
+예: 사내 공통 모듈을 company-common-starter로 만들어서
+로깅/예외/응답포맷/보안/코드체계/Feign Client/Tracing 등을 “옵션형”으로 배포 가능.
+
+테스트 생산성 급상승
+@SpringBootTest, Testcontainers, MockMvc/WebTestClient 등으로 통합테스트 자동화가 쉬워짐.
+
+API/채널 다변화가 쉬움
+같은 업무 서비스를 REST, 메시지(Kafka), 배치, gRPC 등으로 노출해도 구조가 자연스러움.
+
+3) 기반공통 비교 (Batch / Mail / WebService / 채널 / DB / 스케줄링)
+(1) Batch
+Nexcore(업로드 소스):
+
+별도 st-batch-* / dev-dms-batch 같은 모듈이 있고,
+
+iBATIS SQLMap 기반 + 스케줄/배치 런처를 자체 규약으로 구성한 흔적이 많음.
+
+단점
+
+배치 표준(재시작/체크포인트/청크/재처리/메타DB/모니터링)을 “직접 구현”했을 가능성이 큼
+→ 운영 이슈(중복처리/재처리/부분실패)에서 비용 증가
+
+Spring Boot 향상
+
+Spring Batch 5로 표준화: 재시작, 청크, Retry/Skip, JobRepository 기반 운영 안정성↑
+
+스케줄링도 @Scheduled 또는 Quartz를 스타터로 깔끔하게
+
+(2) Mail
+Nexcore(업로드 소스):
+
+메일 자체는 라이브러리만 있고, “프레임워크 레벨 공통”은 강하게 보이지는 편(프로젝트마다 다름).
+
+Spring Boot 향상
+
+spring-boot-starter-mail + 템플릿(Thymeleaf/Freemarker) + 비동기/재시도까지 표준 구성 가능
+
+SMTP/인증/timeout 같은 운영 파라미터가 설정으로 깔끔하게 내려감
+
+(3) WebService (SOAP)
+Nexcore(업로드 소스):
+
+Axis 1.4 기반 구성(핸들러/뷰/요청 처리)이 들어있음.
+
+단점
+
+Axis 1.x는 현대 스택에서 유지보수/보안/호환성 비용이 큼
+
+WS-Security, TLS, 최신 JAX-WS 스펙 등과 맞추기 어려워질 수 있음
+
+Spring Boot 향상
+
+SOAP가 필요하면:
+
+Spring-WS(계약우선 WSDL/XSD) 또는
+
+Apache CXF(JAX-WS)로 “현대적 대체” 가능
+
+REST 전환이 가능하면 OpenAPI 기반으로 생산성/테스트/관측성 모두 좋아짐
+
+(4) 채널 (XPlatform/MIPlatform)
+Nexcore(업로드 소스):
+
+nexcore-channel-xplatform.xml 같은 채널 어댑터 구조가 존재 → 데이터셋 기반 요청/응답
+
+단점
+
+채널이 강한 만큼, 프론트 기술 전환(웹 SPA, 모바일, 외부 API) 시 어댑터/변환 비용이 커짐
+
+Spring Boot 향상
+
+XPlatform을 당장 못 버리면: 호환 어댑터만 유지하고 내부는 REST/서비스 표준으로 정리하는 “Strangler 패턴”이 가능
+
+장기적으로는 React/Vue/모바일/외부파트너 API 등 확장성이 훨씬 좋아짐
+
+(5) DB / 트랜잭션 / 커넥션 풀
+Nexcore(업로드 소스):
+
+Nexcore DB 레이어 + iBATIS SQLMap 중심, JNDI/서버 종속 설정 가능성이 큼
+
+단점
+
+표준(Spring Tx, DataSource/Hikari, 관측성)과 간극
+
+현대적인 성능/튜닝/모니터링(커넥션풀 메트릭 등) 붙이기 불편
+
+Spring Boot 향상
+
+HikariCP 기본 + 메트릭/헬스체크 표준 제공
+
+MyBatis도 mybatis-spring-boot-starter로 “Boot 방식” 정리 가능
+
+트랜잭션은 Spring 표준으로 단순해지고 테스트도 쉬움
+
+4) “Nexcore 단점”을 한 줄로 요약하면
+업로드 소스 기준 Nexcore 방식은 플랫폼이 많은 걸 대신해주는 구조라서 초기에는 통일성이 좋지만,
+시간이 지나면
+
+레거시 라이브러리 고착(보안/지원종료)
+
+환경/서버 종속
+
+테스트·배포·관측성의 현대화 비용 증가
+
+채널/규약 종속으로 확장성 저하
+
+가 누적되는 쪽이 제일 큰 리스크야.
+
+5) Spring Boot 3.2.5 전환 시 “가장 체감되는 개선 Top”
+보안/업데이트/패치 용이성 (레거시 Axis/log4j1/iBATIS 구조 탈피)
+
+운영 표준화 (Actuator/metrics/tracing/healthcheck)
+
+배포 민첩성 (EAR+WAS 중심 → jar/container 중심)
+
+테스트 자동화 (통합테스트/CI/CD)
+
+확장성 (REST/이벤트/배치/외부연동을 표준 스타터로)
+
+-------------------------------------------------
+
+0) 내가 ZIP에서 확인한 “Nexcore 방식”의 실체(증거 포인트)
+(1) JEUS + EAR/WAR/EJB + Ant 빌드 중심
+st-jeus-1-0/build.xml 같은 Ant 스크립트가 있고, 빌드 타깃/환경이 JEUS 기반 배포를 전제로 잡혀있어.
+
+즉 “앱 서버에 올려야 하는 엔터프라이즈 패키징(EAR)” 세계관이 기본값.
+
+(2) 웹 진입점이 Nexcore FrontController + Listener 구조
+st-root-1-0/EarContent/webapp/st/WEB-INF/web.xml에서
+
+nexcore.framework.core.servlet.StdXmlFrontController
+
+nexcore.framework.core.servlet.SessionListener
+같은 Nexcore 표준 컨트롤러/세션 리스너로 라우팅/컨텍스트를 잡아.
+
+(3) “컴포넌트” 메타(.component)로 JNDI/트랜잭션/메서드 노출을 정의
+st-app-1-0/bin/.../*.component 파일에
+
+컴포넌트 타입, JNDI, 부모 컴포넌트, method 노출, transaction 속성
+같은 게 들어가 있어.
+
+이건 Spring의 @Service/@Transactional이 아니라 “런타임 메타 + 컨테이너 기반” 운영 모델이야.
+
+(4) 비즈/배치 코드가 Nexcore 추상클래스 + DataSet/OnlineContext로 움직임
+예: st-app-1-0/src/common/.../BaseBizUnit.java가 AbsBizUnit 확장.
+
+DMS 배치 예: dev-dms-batch/src/java/dms/ep/DBE001.java가 AbsBatchHandler 확장 + callOnlineBizComponent(...)로 온라인 컴포넌트를 호출.
+
+여기서 핵심은:
+
+DTO가 아니라 DataSet(동적/맵형 데이터) 로 주고받고
+
+IOnlineContext 같은 컨텍스트를 Nexcore가 관리한다는 것.
+
+(5) 데이터 접근이 iBATIS2 스타일(.xsql SQLMap)
+예: st-app-1-0/src/common/.../PsMenu.oracle.xsql는 sqlMap 형태(구 iBATIS SQLMap)로 보임.
+
+즉 Spring Boot로 오면 보통 MyBatis3/JPA로 현대화 포인트가 커짐.
+
+(6) 로깅이 Log4j 1.x 기반 흔적이 강함
+예: st-batch-1-0/bin/Log4jConfig.xml (org.apache.log4j.*)
+
+DMS 쪽도 commons-logging + log4j 조합 흔적이 있음.
+
+Log4j 1.x는 유지보수/보안/표준화 관점에서 큰 마이그레이션 이슈 포인트야.
+
+(7) WebService는 SOAP/Axis + (구)Spring XML 설정 흔적
+예: runtime/EarContent/APP-INF/classes/.../nexcore-channel-webservice.xml (Spring 2.0 beans schema)
+
+Axis 관련 키워드/구성이 존재해서 “SOAP 중심 통합”을 Nexcore 채널로 굴린 흔적.
+
+1) 시스템공통 비교 (System Common)
+Nexcore(현재 ZIP에서 보이는 방식)
+로깅/표준 출력: Log4j 1.x + commons-logging 중심 (설정 파일이 분산됨)
+
+예외/에러코드: DataSet 기반 결과코드/메시지 패턴이 많고, 프레임워크 흐름(FrontController/컴포넌트 호출 체인) 안에서 규격화
+
+트랜잭션: .component 메타 + 컨테이너(EJB/JTA) 관점에서 관리되는 흔적
+
+세션/컨텍스트: SessionListener, IOnlineContext 등 프레임워크 컨텍스트에 의존
+
+빌드/배포/환경분리: Ant + JEUS 배포 패키징 중심 → 로컬 개발/테스트/CI 자동화가 상대적으로 무거워지기 쉬움
+
+Spring Boot 3.2.5로 전환 시 “향상되는 점”
+로깅 표준화: SLF4J + Logback(기본) + JSON 로그/구조화 로그 + MDC(트레이싱)까지 “표준 스택”으로 정리 가능
+
+관측성(Observability): Actuator + Micrometer로 metrics/health/tracing을 표준으로 탑재 (운영 가시성 ↑)
+
+트랜잭션 단순화: @Transactional + DataSource/JPA/MyBatis 조합으로 코드/설정 단순화
+
+보안 표준화: Spring Security 기반으로 세션/토큰(OAuth2/JWT) 설계를 표준화 가능
+
+환경/설정 외부화: profile(yml) + ConfigMap/Secret 같은 클라우드 방식과 궁합이 좋음
+
+테스트 생산성: slice test / MockMvc / Testcontainers 등 “자동화 테스트 체계”가 훨씬 쉬워짐
+
+✅ 결론(시스템공통): Nexcore는 “컨테이너/프레임워크 런타임 규약”에 강하게 묶이는 대신, Boot는 “표준 라이브러리+자동화+운영관측”에서 압도적으로 유리.
+
+2) 업무공통 비교 (Business Common)
+Nexcore 방식(현재)
+비즈 로직 기본 단위가 BizUnit/ServiceUnit(패턴)이고, I/O는 DataSet 중심
+
+온라인 호출도 “컴포넌트명 + 메서드명”처럼 프레임워크 호출 규약을 따른 흔적이 있음
+
+장점: 조직 내 표준(개발 규칙/템플릿)이 강하면 “일관성”은 확보됨
+
+단점:
+
+DataSet 기반은 컴파일 타임 타입 안정성 부족 → 리팩토링 비용/런타임 오류 위험
+
+컴포넌트 메타/컨텍스트에 의존 → “순수 자바/순수 테스트”가 어려움
+
+프레임워크 특화 학습비용(신규 인력 온보딩 부담)
+
+Spring Boot 3.2.5 전환 시 “향상되는 점”
+Typed DTO/Record + Validation(jakarta validation)로 계약(Contract)이 명확해짐
+
+비즈 공통은 “라이브러리 모듈(system-common, business-common)”로 빼고,
+
+공통 응답 규격(에러코드, traceId, message)
+
+공통 AOP(로그/성능/감사)
+
+공통 보안(권한/인증)
+을 코드 기반으로 표준화 가능
+
+DataSet에서 하던 걸
+
+Controller(Request DTO) → Service(도메인) → Repository(Mapper/JPA)
+로 자연스럽게 계층화 가능
+
+✅ 결론(업무공통): Nexcore는 “내부 표준 프레임워크”에 기대어 통일성을 얻지만, Boot는 “타입 안정성 + 테스트 가능성 + 생태계 표준”로 장기 유지보수성이 훨씬 좋아져.
+
+3) 기반공통 비교 (Foundation Common: batch / mail / webservice)
+3-1) Batch
+Nexcore(현재)
+
+AbsBatchHandler 기반 + 배치가 온라인 컴포넌트를 callOnlineBizComponent로 호출하는 구조가 보임
+
+장점: Nexcore 온라인/배치가 같은 프레임워크 규약으로 붙어있어 내부 호출이 쉬움
+
+단점:
+
+배치 재시도/체크포인트/재처리/스텝 단위 모니터링 같은 “배치 본연의 운영 기능”을 프레임워크에 의존하거나 직접 구현하기 쉬움
+
+대용량 처리/병렬화/재시작 전략이 체계화되지 않으면 운영 리스크가 커짐
+
+Spring Boot 3.2.5
+
+Spring Batch로
+
+Job/Step, Reader/Processor/Writer
+
+재시작/체크포인트/리트라이/스킵
+
+메타 테이블 기반 운영 추적
+을 표준 제공
+
+스케줄링은 Quartz/쿠버 CronJob/스케줄러 분리 등 선택지가 넓음
+
+➡️ 배치는 Boot가 “운영/재처리/표준화”에서 확실히 우세.
+
+3-2) Mail
+Nexcore(현재 ZIP)
+
+메일은 코드에서 강하게 드러나진 않았지만, Nexcore 기반 프로젝트들은 보통 “프레임워크 유틸/채널”로 숨겨진 경우가 많아(또는 WAS 리소스에 의존).
+
+Spring Boot
+
+spring-boot-starter-mail로 SMTP 설정/템플릿(Thymeleaf 등)/비동기 발송/재시도까지 표준화 쉬움
+
+장애 대비(큐잉, DLQ 등)도 Rabbit/Kafka로 자연스럽게 확장 가능
+
+➡️ 메일은 Boot가 “구성 단순화 + 확장성”에서 유리.
+
+3-3) WebService(SOAP/REST)
+Nexcore(현재)
+
+nexcore-channel-webservice.xml 같은 파일이 Spring 2.0 beans schema로 보이고,
+
+Axis/SOAP 흔적도 있음 → 레거시 SOAP 중심 통합 구조 가능성이 높아.
+
+Spring Boot 3.2.5
+
+SOAP 유지 시: Spring Web Services / JAX-WS(운영 선택)로 정리 가능
+
+REST 전환 시: Spring MVC + OpenAPI(문서화) + WebClient(외부 호출)로 표준화
+
+관측/재시도/서킷브레이커(Resilience4j) 같은 운영 품질 패턴을 붙이기 쉬움
+
+➡️ WebService는 Boot가 “현대 표준 + 운영 안정성 + 문서화”에서 유리.
+
+4) Nexcore의 단점 요약 (이 ZIP 기준으로 현실적으로 보이는 것)
+플랫폼 종속성(앱서버/배포규격/런타임 규약)
+
+JEUS + EJB + EAR + FrontController + .component 메타 같은 구조는
+
+개발/테스트/배포 자동화
+
+클라우드/컨테이너 전환
+에서 비용이 커지기 쉬움.
+
+기술 스택 노후화 리스크
+
+iBATIS SQLMap(.xsql), Log4j 1.x, Spring 2.0 schema, Axis 등은
+
+보안/유지보수/인력수급 관점에서 리스크가 누적됨.
+
+타입 안정성/테스트 난이도
+
+DataSet 중심은 빠르지만 장기적으로
+
+계약 변경(필드 추가/삭제) 시 런타임 오류
+
+단위테스트 격리 어려움
+이 자주 터질 수 있음.
+
+운영 가시성/표준 관측의 부재
+
+Boot는 Actuator/Micrometer로 “기본 탑재”인데,
+Nexcore는 보통 프로젝트별 커스텀 편차가 생김.
+
+5) Spring Boot 3.2.5로 전환했을 때 “향상되는 점” (정리)
+개발 생산성: 설정/부트스트랩/빌드가 단순 (Maven/Gradle + embedded)
+
+테스트/품질: 표준 테스트 생태계 확립 (MockMvc, Testcontainers)
+
+운영 품질: health/metrics/tracing 표준화 (Actuator)
+
+보안 표준: Spring Security 기반으로 체계화
+
+배치 운영력: Spring Batch 기반으로 재처리/체크포인트/리트라이 내장
+
+통합 확장성: REST/WebClient + 메시징(Kafka/Rabbit)로 확장 쉬움
+
+인력/생태계: 시장 표준 스택이라 채용/온보딩/레퍼런스가 풍부
+
+6) 전환 전략(현실적인 추천)
+“공통 모듈”부터 Boot 방식으로 재정의
+
+system-common (로깅/예외/응답규격/보안/감사/트레이싱)
+
+business-common (공통 DTO/Validation/코드체계/도메인 규칙)
+
+foundation-common (batch/mail/webservice client wrapper)
+
+Strangler 패턴(점진 교체)
+
+Nexcore 컴포넌트를 바로 다 뜯기보다,
+
+기존 Nexcore 앞단에 REST API 게이트웨이/어댑터를 두고
+
+신규 기능부터 Boot로 분리
+
+점차 핵심 도메인을 이동
+
+DataSet → Typed DTO 전환 원칙
+
+“DataSet 필드명 규약”을 먼저 문서화/고정한 뒤 DTO로 매핑(변환 계층을 둠)
+
+이 변환 계층이 migration 동안 충격을 줄여줘.
+
+-------------------------------------------------------------------------
+
+0) 먼저, 내가 “Nexcore를 어떻게 아냐 / 소스를 볼 수 있냐”에 대한 답
+Nexcore 자체는 “기업 내부/특정 벤더(사내) 프레임워크” 성격이라, 내가 SK 내부 저장소 같은 곳을 임의로 보거나 확인할 수는 없어.
+
+대신,
+
+공개 GitHub 링크(퍼블릭) 는 내가 웹으로 열어서 코드 확인 가능
+
+네가 ZIP 업로드하면 그 파일 안의 소스는 전체 분석 가능
+
+프라이빗 GitHub(권한 필요한 repo)는 링크만 줘도 접근 불가 (권한이 없어서)
+
+1) 네 ZIP에서 확인되는 Nexcore 쪽 “현실 구조/특징”(핵심만)
+네 프로젝트는 전형적으로 “앱서버(EAR) + Nexcore 런타임 + XPLATFORM(또는 유사) + 커스텀 프레임워크 유틸” 성격이 강해.
+
+(1) 배포/런타임
+EarContent/APP-INF/... 형태와 web.xml 기반 구성 → WAR/EAR 전통 앱서버 배포 전제
+
+빌드가 Ant(build.xml) 중심이고, 환경변수/홈경로(NEXCORE_HOME 류) 의존이 큼
+
+(2) 데이터/SQL
+.xsql 파일들이 사실상 iBATIS 2.x 스타일 SQL 매핑(DTD 기반)처럼 운영됨
+→ “SQL 자산이 프레임워크 포맷에 강하게 묶이는” 구조
+
+(3) WebService(SOAP)
+org.apache.axis...를 직접 쓰는 코드가 있고, SOAP 클라이언트가 Axis 1 계열로 보임
+
+Apache Axis 사이트 자체가 “Axis 1.4 (2006년 뉴스)” 수준으로 매우 오래된 축에 속해. 
+axis.apache.org
+
+(4) Batch
+Ant 실행 스크립트/런처 중심으로 “잡 이름/파라미터로 실행” 패턴(전형적인 레거시 배치 운영)
+
+(5) 인코딩/레거시 호환
+설정에서 MS949 같은 인코딩이 보이고, 구형 연동/전문(Flat) 처리 전제가 깔려 있는 편
+
+2) 같은 “공통 분류”로 비교: Nexcore(현 소스) vs Spring Boot 3.2.5
+참고: Spring Boot 3.2 라인은 기본적으로 Java 17+ 기반(현대 스프링/자카르타 기반)으로 가는 흐름이야. 
+Home
+
+아래는 네가 말한 분류 기준으로 “무엇이 단점이고 / 바꾸면 무엇이 좋아지는지”를 딱 공통 관점으로 정리한 거야.
+
+A. 시스템공통 비교 (로깅/예외/보안/트랜잭션/설정/표준화)
+Nexcore(현 소스)에서의 단점(대표)
+설정/환경 전환이 프레임워크 관례 + 디렉토리 규약 + 앱서버 배치에 강결합
+→ “로컬에서 한 방에 띄우기 / 컨테이너화 / 환경별 표준화”가 어려워짐
+
+인증/권한이 Filter/세션 체크 같은 커스텀 구현 중심
+→ 표준 보안 업데이트/취약점 대응(정책 일괄 적용)이 빡셈
+
+로깅이 Nexcore LogManager/유틸 중심
+→ 표준(구조화 로그, trace/span, OTEL, MDC 표준화)로 확장하기가 힘듦
+
+예외/에러코드도 프레임워크 관례에 얹히다 보니, API 표준 응답(RFC7807 등)·관측성(Observability)·테스트 자동화로 이어지기 어려움
+
+Spring Boot 3.2.5로 전환 시 향상
+표준 설정 체계: application.yml + profile + config import로 환경 분리/주입이 깔끔
+
+표준 보안: Spring Security(OAuth2/JWT/SSO 연계)로 정책을 “중앙집중” 적용 가능
+
+표준 로깅/트레이싱: SLF4J+Logback + MDC + Micrometer/Actuator로 운영 가시성↑
+
+예외/응답 표준화: @RestControllerAdvice로 에러코드/메시지/traceId를 일관되게 강제 가능
+
+테스트성 급상승: Slice test/WebMvcTest/Testcontainers 등으로 “재현/회귀” 비용↓
+
+B. 업무공통 비교 (업무서비스 베이스/도메인 규칙/공통 DTO·검증·권한)
+Nexcore 단점(대표)
+업무공통이 “프레임워크 방식(Service/DAO/VO 규약)”에 맞춰져 있으면
+
+신규 인력 온보딩이 프레임워크 학습부터 시작
+
+업무 규칙이 “공통 유틸/정적 메서드/관례”에 흩어지기 쉬움
+
+UI(XPLATFORM) 전제의 화면-서버 통신 규약이 강하면, REST/SPA로 가는 길이 험함
+
+Spring Boot 전환 향상
+업무공통을 모듈(라이브러리)로 명확 분리: common-business에 도메인 규칙/검증/공통정책을 넣고
+
+앱(API/Batch/WS)이 그것을 의존하는 구조로 만들면
+
+공통 변경의 영향범위가 선명
+
+도메인 테스트가 쉬워지고
+
+“업무 규칙”이 프레임워크 관례보다 코드로 드러남
+
+C. 기반공통 비교 (Batch / Mail / WebService / Scheduler 등)
+1) Batch
+Nexcore 단점
+
+런처/스크립트/프레임워크 잡 규약에 묶여 있으면
+
+재시작/재처리/메타데이터/모니터링이 “사내 룰” 의존
+
+단위 테스트/로컬 재현 난이도↑
+
+Spring Boot 향상
+
+Spring Batch는
+
+step/chunk 기반 표준 모델
+
+재시작/실패 복구 메커니즘
+
+JobRepository 기반 이력 관리
+
+테스트 지원이 좋아 운영 안정성이 올라감
+
+2) WebService(SOAP)
+Nexcore 단점
+
+Axis 1 계열은 너무 오래된 축(사이트 뉴스가 2006년 수준)이라 기술부채가 큼. 
+axis.apache.org
+
+Spring Boot 향상
+
+SOAP이 꼭 필요하면 Spring Web Services / (또는) CXF 같은 현대 스택으로 정리 가능
+
+장기적으로는 “내부 연동”을 REST/이벤트로 전환하기 쉬움(관측성/보안/버전관리 포함)
+
+3) Mail
+Nexcore에서 커스텀 구현/설정 분산이면 운영 이슈가 누적되기 쉬움
+
+Spring Boot는 starter로 표준화(재시도/템플릿/관측성 확장)하기가 쉬움
+
+3) 결론: Nexcore의 “현실적 단점” 요약 & Boot 전환의 “실익”
+Nexcore 단점 요약 (네 ZIP 기반으로 특히 큰 것)
+앱서버(EAR) + Ant + 프레임워크 규약 → 개발 생산성/표준 DevOps/컨테이너 전환에 불리
+
+SQL 자산(.xsql/iBATIS 스타일) 결합 → 현대 MyBatis/JPA/마이그레이션 표준과 거리
+
+Axis 1 같은 오래된 연동 스택 → 보안/유지보수 리스크 증가 
+axis.apache.org
+
+필터/세션 중심 보안 → 정책 표준화/확장성(Spring Security)에 비해 불리
+
+관측성(Actuator/metrics/tracing) 표준 부재 → 장애 대응/원인 추적 비용↑
+
+Spring Boot 3.2.5로 전환 시 “확실히 좋아지는 것”
+빌드/의존성/업데이트 체계가 표준화(Gradle/Maven + BOM)
+
+테스트·배포·관측성이 구조적으로 쉬워짐(Actuator/Micrometer 등)
+
+보안 체계 표준화(SSO/JWT/OAuth2 연계 포함)
+
+클라우드/컨테이너/K8s 대응력이 훨씬 좋아짐
+
+장기적으로 “사람 구하기/온보딩”이 압도적으로 쉬워짐
+
+4) 추천 전환 전략 (실무형)
+경계부터 교체(Strangler)
+
+기존 Nexcore는 유지, 바깥쪽에 Spring Boot API 게이트웨이/Facade를 세워 점진 전환
+
+기반공통 먼저 표준화
+
+Batch/WS/Mail을 Spring Boot 쪽으로 먼저 옮기면 운영 효익이 빨리 나옴
+
+SQL 자산 이관은 자동화 전략 필요
+
+.xsql → MyBatis XML은 변환 규칙을 정하면 기계적으로 옮길 구간이 꽤 나옴(100% 자동은 아니지만)
+
+UI(XPLATFORM)가 크면 마지막에
+
+UI가 크면 “연동 규약부터 REST로 정리” 후 화면 전환
+
+5) 너가 바로 써먹을 수 있게: Spring Boot 3.2.5 멀티모듈 템플릿 ZIP도 만들어놨어
+네가 말한 분류 그대로:
+
+common-system (시스템공통)
+
+common-business (업무공통)
+
+infra-batch / infra-mail / infra-webservice (기반공통)
+
+app-api (실행 앱)

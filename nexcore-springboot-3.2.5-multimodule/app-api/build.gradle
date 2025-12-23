@@ -1,0 +1,19 @@
+plugins {
+    id 'org.springframework.boot' version '3.2.5'
+}
+
+dependencies {
+    implementation project(':common-system')
+    implementation project(':common-business')
+    implementation project(':infra-mail')
+    implementation project(':infra-webservice')
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+bootJar {
+    archiveFileName = 'app-api.jar'
+}

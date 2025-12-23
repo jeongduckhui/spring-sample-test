@@ -1,0 +1,8 @@
+rootProject.name = 'nexcore-migration-sample'
+
+include 'common-system'
+include 'common-business'
+include 'infra-batch'
+include 'infra-mail'
+include 'infra-webservice'
+include 'app-api'
