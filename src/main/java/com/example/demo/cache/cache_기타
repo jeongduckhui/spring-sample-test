@@ -1,0 +1,105 @@
+groups가 Map<String, List<Map<String, Object>>> 인 경우
+
+groups.forEach((groupCode, valueList) -> {
+    result.put(groupCode, cache.getOrDefault(groupCode, List.of()));
+});
+
+key(String) 만 필요
+groups.keySet().forEach(groupCode ->
+    result.put(groupCode, cache.getOrDefault(groupCode, List.of()))
+);
+
+------------------------------------------------------------
+
+roups가 List<Map<String, Object>> 인 경우
+
+groups.forEach(groupMap -> {
+    Object code = groupMap.get("groupCode");
+    if (code instanceof String groupCode) {
+        result.put(groupCode, cache.getOrDefault(groupCode, List.of()));
+    }
+});
+
+groups.forEach(groupMap -> {
+    String groupCode = (String) groupMap.get("groupCode");
+    result.put(groupCode, cache.getOrDefault(groupCode, List.of()));
+});
+
+------------------------------------------------------------
+
+groups가 Map<String, Object> 인 경우
+
+groups.forEach((groupCode, value) -> {
+    result.put(groupCode, cache.getOrDefault(groupCode, List.of()));
+});
+
+key만 쓸 경우
+for (String groupCode : groups.keySet()) {
+    result.put(groupCode, cache.getOrDefault(groupCode, List.of()));
+}
+
+===========================================================
+
+public static <T> List<String> extractGroupCodes(
+        Collection<T> source,
+        Function<T, String> extractor
+) {
+    if (source == null || source.isEmpty()) {
+        return List.of();
+    }
+
+    return source.stream()
+            .map(extractor)
+            .filter(Objects::nonNull)
+            .distinct()
+            .toList();
+}
+------
+List<String>
+List<String> groupCodes =
+    extractGroupCodes(groups, Function.identity());
+
+List<Map<String, Object>>
+List<String> groupCodes =
+    extractGroupCodes(groups, m -> (String) m.get("groupCode"));
+
+List<CommonCode>
+List<String> groupCodes =
+    extractGroupCodes(commonCodes, CommonCode::getGroupCode);
+
+Map<String, List<Map<String, Object>>>
+List<String> groupCodes =
+    extractGroupCodes(groups.keySet(), Function.identity());
+
+----------------------------------
+
+List<String> groupCodes = extractGroupCodes(groups);
+groupCodes.forEach(code ->
+    result.put(code, cache.getOrDefault(code, List.of()))
+);
+
+
+============================
+
+if (isExpired()) {
+    여기에서 cache.clear(); 한번 해줘야 함
+}
+
+#############################################################################################
+# =====================================
+# 조회조건 화면 전용 공통코드 캐시 설정
+# =====================================
+
+# =====================================
+# 조회조건 화면 전용 공통코드 캐시 설정
+# =====================================
+
+# 캐시 사용 여부 (운영 안전 스위치)
+search.condition.cache.enabled=true
+
+# TTL (분 단위)
+# 운영 기본: 24시간 = 1440분
+search.condition.cache.ttl-minutes=1440
+
+# 테스트용 1분
+search.condition.cache.ttl-minutes=1
